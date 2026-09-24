@@ -4,10 +4,12 @@
 package apparmor
 
 import (
+	"strings"
 	"testing"
+	"text/template"
 )
 
-func TestQuoteProfileName(t *testing.T) {
+func TestQuotePeerName(t *testing.T) {
 	tests := []struct {
 		doc   string
 		value string
@@ -71,9 +73,36 @@ func TestQuoteProfileName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.doc, func(t *testing.T) {
-			if got := quoteProfileName(tc.value); got != tc.want {
-				t.Errorf("quoteProfileName(%q) = %q, want %q", tc.value, got, tc.want)
+			if got := quotePeerName(tc.value); got != tc.want {
+				t.Errorf("quotePeerName(%q) = %q, want %q", tc.value, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestTemplateProfileNames(t *testing.T) {
+	data := profileData{
+		name:          `foo"bar,*?[ab]{c,d}^\baz`,
+		daemonProfile: `daemon,profile\baz`,
+	}
+	tmpl, err := template.New("profile").Parse(baseTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := tmpl.Execute(&out, data); err != nil {
+		t.Fatal(err)
+	}
+
+	// Declarations retain AARE escapes, while peer patterns consume them.
+	for _, want := range []string{
+		`profile "foo\"bar,*?[ab]{c,d}^\baz" flags=(attach_disconnected,mediate_deleted) {`,
+		`  signal (receive) peer="daemon\,profile\\baz",`,
+		`  signal (send,receive) peer="foo\"bar\,\*\?\[ab\]\{c\,d\}\^\\baz",`,
+		`  ptrace (trace,tracedby,read,readby) peer="foo\"bar\,\*\?\[ab\]\{c\,d\}\^\\baz",`,
+	} {
+		if !strings.Contains(out.String(), "\n"+want+"\n") {
+			t.Errorf("generated profile is missing line %q", want)
+		}
 	}
 }

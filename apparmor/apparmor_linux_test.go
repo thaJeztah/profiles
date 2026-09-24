@@ -292,6 +292,32 @@ func TestGenerateDefault(t *testing.T) {
 	}
 }
 
+func TestGenerateProfileName(t *testing.T) {
+	parser, err := exec.LookPath("apparmor_parser")
+	if err != nil {
+		t.Skipf("apparmor_parser not available: %v", err)
+	}
+
+	const name = `foo"bar,*?[ab]{c,d}^\baz`
+	var profile strings.Builder
+	if err := generate(&profileData{name: name}, &profile, func(string) bool { return false }); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ask the parser for the declared name without loading policy into the kernel.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, parser, "-N", "-Q", "-K")
+	cmd.Stdin = strings.NewReader(profile.String())
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("parsing generated profile: %v", err)
+	}
+	if got := string(out); got != name+"\n" {
+		t.Fatalf("parsed profile name = %q, want %q", got, name+"\n")
+	}
+}
+
 func createTestProfiles(b *testing.B, lines int, targetProfile string) string {
 	b.Helper()
 
